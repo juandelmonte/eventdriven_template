@@ -194,6 +194,12 @@ class TaskConsumer(AsyncWebsocketConsumer):
         logger.info(f"Redis listener started for user {self.user_id}")
         logger.info(f"Listening on queue: {settings.REDIS_RESULTS_QUEUE}")
         
+        # Set up the pubsub if not already done
+        if not hasattr(self, 'pubsub') or self.pubsub is None:
+            logger.warning("PubSub not initialized, creating new one")
+            self.pubsub = self.redis.pubsub()
+            await self.pubsub.subscribe(settings.REDIS_RESULTS_QUEUE)
+            
         # Send confirmation to the client
         await self.send(text_data=json.dumps({
             "type": "info",
@@ -202,15 +208,17 @@ class TaskConsumer(AsyncWebsocketConsumer):
         
         msg_count = 0
         heartbeat_count = 0
+        
         try:
             while True:
                 try:
-                    # Periodically log that we're still listening
+                    # Increment heartbeat counter
                     heartbeat_count += 1
+                    
+                    # Every 100 iterations, send a heartbeat message to confirm the connection is active
                     if heartbeat_count >= 100:  # Every ~10 seconds
-                        logger.info(f"Still listening on Redis queue: {settings.REDIS_RESULTS_QUEUE}")
                         heartbeat_count = 0
-                        # Send heartbeat to client
+                        logger.info(f"Redis listener heartbeat for user {self.user_id}")
                         await self.send(text_data=json.dumps({
                             "type": "heartbeat",
                             "message": "Redis listener still active"
@@ -222,10 +230,11 @@ class TaskConsumer(AsyncWebsocketConsumer):
                     if message:
                         msg_count += 1
                         logger.info(f"Redis message received #{msg_count}: {message}")
-                        # Forward raw message info to client for debugging
+                        
+                        # Inform client about message type for debugging
                         await self.send(text_data=json.dumps({
                             "type": "debug",
-                            "message": f"Received Redis message of type: {message['type']}"
+                            "message": f"Received Redis message type: {message['type']}"
                         }))
                         
                         if message['type'] == 'message':
@@ -241,31 +250,34 @@ class TaskConsumer(AsyncWebsocketConsumer):
                                 message_user_id = parsed_data.get('user_id')
                                 logger.info(f"Message user_id: {message_user_id}, current user_id: {self.user_id}")
                                 
-                                # For debugging, send info about the message even if it's not for this user
+                                # For debugging, send info about the message
                                 await self.send(text_data=json.dumps({
                                     "type": "debug",
                                     "message": f"Message for user: {message_user_id}, current user: {self.user_id}"
                                 }))
                                 
+                                # If the message is for this user or no user is specified, forward it
                                 if message_user_id is not None and str(message_user_id) == str(self.user_id):
-                                    logger.info(f"Forwarding task result to user {self.user_id}")
+                                    logger.info(f"Forwarding message to user {self.user_id}")
                                     
-                                    # Format the message with a type to make it more identifiable
-                                    response_data = {
+                                    # Format the message as a task result
+                                    result_message = {
                                         "type": "task_result",
                                         "data": parsed_data
                                     }
                                     
-                                    # Send directly to the WebSocket
-                                    await self.send(text_data=json.dumps(response_data))
-                                    logger.info("Message sent to WebSocket")
+                                    # Send to WebSocket
+                                    await self.send(text_data=json.dumps(result_message))
+                                    
+                                    # Log success
+                                    logger.info(f"Message forwarded to user {self.user_id}")
                                 else:
-                                    logger.info(f"Ignoring message for user {message_user_id} (current: {self.user_id})")
+                                    logger.info(f"Ignoring message for user {message_user_id} (not for current user {self.user_id})")
                             except json.JSONDecodeError:
                                 logger.error(f"Failed to decode JSON from Redis: {data}")
                                 await self.send(text_data=json.dumps({
                                     "type": "error",
-                                    "message": f"Failed to decode JSON from Redis: {data}"
+                                    "message": f"Failed to decode Redis message: {data[:100]}"
                                 }))
                             except Exception as e:
                                 logger.error(f"Error processing Redis message: {str(e)}")
@@ -281,17 +293,34 @@ class TaskConsumer(AsyncWebsocketConsumer):
                 except Exception as e:
                     logger.error(f"Error in Redis listener loop: {str(e)}")
                     traceback.print_exc(file=sys.stderr)
-                    # Continue the loop to maintain the listener
+                    
+                    # Inform client about the error
+                    await self.send(text_data=json.dumps({
+                        "type": "error",
+                        "message": f"Redis listener error: {str(e)}"
+                    }))
+                    
+                    # Pause briefly before continuing
+                    await asyncio.sleep(1)
                     
                 # Small delay to prevent CPU hogging
                 await asyncio.sleep(0.1)
                 
         except asyncio.CancelledError:
-            logger.info("Redis listener task cancelled")
+            logger.info(f"Redis listener task cancelled for user {self.user_id}")
             raise
         except Exception as e:
             logger.error(f"Fatal error in Redis listener: {str(e)}")
             traceback.print_exc(file=sys.stderr)
+            
+            # Try to inform the client
+            try:
+                await self.send(text_data=json.dumps({
+                    "type": "error",
+                    "message": f"Redis listener fatal error: {str(e)}"
+                }))
+            except:
+                pass
 
     async def receive(self, text_data):
         logger.info(f"Received message from WebSocket: {text_data}")

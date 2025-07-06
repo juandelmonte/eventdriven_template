@@ -4,6 +4,8 @@ import importlib
 import logging
 import redis
 import traceback
+import sys
+import time
 from celery import Celery
 from pathlib import Path
 
@@ -36,37 +38,11 @@ REDIS_RESULTS_QUEUE = CONFIG['redis']['channels']['results_queue']
 logger.info(f"Redis configuration: host={REDIS_HOST}, port={REDIS_PORT}")
 logger.info(f"Redis channels: tasks={REDIS_TASKS_QUEUE}, results={REDIS_RESULTS_QUEUE}")
 
-# Celery configuration
-CELERY_BROKER_URL = f'redis://{REDIS_HOST}:{REDIS_PORT}/0'
-CELERY_RESULT_BACKEND = f'redis://{REDIS_HOST}:{REDIS_PORT}/0'
-
-logger.info(f"Celery broker URL: {CELERY_BROKER_URL}")
-logger.info(f"Celery result backend: {CELERY_RESULT_BACKEND}")
-
-# Create Celery app
-app = Celery('daemon')
-app.conf.update(
-    broker_url=CELERY_BROKER_URL,
-    result_backend=CELERY_RESULT_BACKEND,
-    task_serializer='json',
-    accept_content=['json'],
-    result_serializer='json',
-    enable_utc=True,
-    task_routes={
-        'tasks.tasks.*': {'queue': 'default'}
-    }
-)
-
 # Ensure tasks directory is in path
-import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 logger.info(f"Tasks directory added to path: {os.path.dirname(os.path.abspath(__file__))}")
 
-# Register tasks
-app.autodiscover_tasks(['tasks'])
-logger.info("Tasks auto-discovered")
-
-# Import the task after Celery app is configured
+# Import the tasks directly - they have their own Celery app configured
 from tasks.tasks import generate_random_number, reverse_string
 logger.info("Tasks imported: generate_random_number, reverse_string")
 
@@ -141,6 +117,7 @@ class TaskProcessor:
         if message['type'] == 'message':
             logger.info(f"Processing message: {message}")
             try:
+                # Parse the message
                 data = json.loads(message['data'])
                 user_id = data.get('user_id')
                 task_type = data.get('task_type')
@@ -148,22 +125,56 @@ class TaskProcessor:
                 
                 logger.info(f"Received task: {task_type} (User: {user_id}, Parameters: {parameters})")
                 
+                if not task_type or not user_id:
+                    logger.error(f"Missing required task data: task_type={task_type}, user_id={user_id}")
+                    return
+                
                 # Get the task function from the registry
                 try:
-                    # Dynamic task resolution - get the appropriate task function based on task_type
-                    task_module = importlib.import_module('tasks.tasks')
-                    task_function = getattr(task_module, task_type, None)
-                    
-                    if task_function:
-                        # Call the Celery task
-                        logger.info(f"Executing task: {task_type} for user {user_id}")
-                        task = task_function.apply_async(
-                            args=[user_id],
-                            kwargs=parameters
-                        )
-                        logger.info(f"Task {task.id} sent to Celery, waiting for result...")
+                    # Dynamic task resolution based on task type
+                    if task_type == 'generate_random_number':
+                        min_value = parameters.get('min_value', 1)
+                        max_value = parameters.get('max_value', 100)
+                        
+                        # IMPORTANT: Import task dynamically to ensure it's registered properly
+                        from tasks.tasks import generate_random_number
+                        
+                        logger.info(f"Calling generate_random_number({user_id}, {min_value}, {max_value})")
+                        
+                        # Dispatch task directly
+                        task = generate_random_number.delay(user_id, min_value, max_value)
+                        
+                        logger.info(f"Task dispatched with ID: {task.id}")
+                        
+                        # Debug: publish a test message directly to results queue
+                        debug_result = {
+                            "user_id": user_id,
+                            "task_id": "debug-pre-task",
+                            "task_type": "debug",
+                            "status": "debug",
+                            "message": f"Task {task_type} dispatched with ID {task.id}"
+                        }
+                        self.redis_client.publish(REDIS_RESULTS_QUEUE, json.dumps(debug_result))
+                        logger.info("Published debug confirmation to results queue")
+                        
+                    elif task_type == 'reverse_string':
+                        text = parameters.get('text', '')
+                        
+                        if not text:
+                            logger.error("Missing text for reverse_string task")
+                            return
+                            
+                        # IMPORTANT: Import task dynamically to ensure it's registered properly
+                        from tasks.tasks import reverse_string
+                        
+                        logger.info(f"Calling reverse_string({user_id}, {text})")
+                        
+                        # Dispatch task directly
+                        task = reverse_string.delay(user_id, text)
+                        
+                        logger.info(f"Task dispatched with ID: {task.id}")
                     else:
-                        logger.warning(f"Task function not found for task type: {task_type}")
+                        logger.warning(f"Unknown task type: {task_type}")
                         
                         # Publish error back to results queue
                         error_data = {
@@ -175,8 +186,8 @@ class TaskProcessor:
                         }
                         self.redis_client.publish(REDIS_RESULTS_QUEUE, json.dumps(error_data))
                         logger.info(f"Published error message to {REDIS_RESULTS_QUEUE}")
-                except (ImportError, AttributeError) as e:
-                    error_msg = f"Error importing task function: {e}"
+                except Exception as e:
+                    error_msg = f"Error executing task function: {e}"
                     logger.error(error_msg, exc_info=True)
                     
                     # Publish error back to results queue
