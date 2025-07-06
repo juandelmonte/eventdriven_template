@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple WebSocket Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #log { height: 300px; border: 1px solid #ccc; overflow-y: scroll; padding: 10px; margin-bottom: 10px; }
+        .controls { margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h2>Simple WebSocket Test</h2>
+    
+    <div class="controls">
+        <label for="token">JWT Token:</label>
+        <input type="text" id="token" size="50">
+    </div>
+    
+    <div class="controls">
+        <button onclick="connect()">Connect</button>
+        <button onclick="disconnect()">Disconnect</button>
+        <button onclick="sendMessage()">Send Test Message</button>
+    </div>
+    
+    <div>
+        <b>Connection Status:</b> <span id="status">Disconnected</span>
+    </div>
+    
+    <div id="log"></div>
+    
+    <script>
+        let socket = null;
+        
+        function log(message) {
+            const logElement = document.getElementById('log');
+            const now = new Date().toLocaleTimeString();
+            logElement.innerHTML += `<div>[${now}] ${message}</div>`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        function connect() {
+            if (socket) {
+                log('Already connected');
+                return;
+            }
+            
+            const token = document.getElementById('token').value;
+            if (!token) {
+                log('Please enter a token');
+                return;
+            }
+            
+            // Fix the URL construction to use absolute URL
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            // Use "localhost:8000" directly for testing
+            const wsUrl = `${wsProtocol}//localhost:8000/ws/notifications/?token=${token}`;
+            log(`Connecting to ${wsUrl}`);
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = function() {
+                document.getElementById('status').innerText = 'Connected';
+                document.getElementById('status').style.color = 'green';
+                log('Connection established!');
+            };
+            
+            socket.onmessage = function(event) {
+                log(`Message received: ${event.data}`);
+                try {
+                    const data = JSON.parse(event.data);
+                    log(JSON.stringify(data, null, 2));
+                } catch (e) {
+                    log(`Error parsing message: ${e.message}`);
+                }
+            };
+            
+            socket.onclose = function(event) {
+                document.getElementById('status').innerText = 'Disconnected';
+                document.getElementById('status').style.color = 'red';
+                log(`Connection closed: code=${event.code}, reason=${event.reason || 'No reason'}, wasClean=${event.wasClean}`);
+                socket = null;
+            };
+            
+            socket.onerror = function(error) {
+                document.getElementById('status').innerText = 'Error';
+                document.getElementById('status').style.color = 'red';
+                log('WebSocket error occurred');
+                console.error('WebSocket error:', error);
+            };
+        }
+        
+        function disconnect() {
+            if (socket) {
+                log('Disconnecting...');
+                socket.close();
+            } else {
+                log('Not connected');
+            }
+        }
+        
+        function sendMessage() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const message = { type: 'ping', timestamp: new Date().toISOString() };
+                log(`Sending message: ${JSON.stringify(message)}`);
+                socket.send(JSON.stringify(message));
+            } else {
+                log('Cannot send message: Not connected');
+            }
+        }
+    </script>
+</body>
+</html>

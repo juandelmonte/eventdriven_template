@@ -34,12 +34,13 @@ SECRET_KEY = 'django-insecure-gcq+u7gt*kmp(_0wa0u+eh@z$m=ha_1(!03-3^$269b!h%e+k_
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',  # Must come before django.contrib.staticfiles
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -104,13 +105,46 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'djangoproject.middleware.ASGICompatibilityMiddleware',  # Add ASGI compatibility middleware
 ]
 
 # CORS settings
 CORS_ALLOW_ALL_ORIGINS = True  # For development only
+CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
-    f"http://{CONFIG['frontend']['host']}:{CONFIG['frontend']['port']}"
+    "http://localhost:3000",  # React app
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",  # For testing WebSockets from same origin
+    "http://127.0.0.1:8000",
 ]
+
+# Configure logging to see WebSocket debug messages
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'tasks.consumers': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
+        'tasks.middleware': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
+    },
+}
 
 ROOT_URLCONF = 'djangoproject.urls'
 

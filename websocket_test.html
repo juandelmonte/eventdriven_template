@@ -28,8 +28,11 @@
                 return;
             }
             
+            const wsUrl = `ws://localhost:8000/ws/notifications/?token=${token}`;
+            logMessage(`Attempting to connect to: ${wsUrl}`);
+            
             // Connect to the WebSocket with authorization token
-            socket = new WebSocket(`ws://localhost:8000/ws/tasks/?token=${token}`);
+            socket = new WebSocket(wsUrl);
             
             socket.onopen = function(e) {
                 document.getElementById('status').innerText = "Connected";
@@ -48,16 +51,14 @@
             
             socket.onclose = function(event) {
                 document.getElementById('status').innerText = "Disconnected";
-                if (event.wasClean) {
-                    logMessage(`Connection closed cleanly, code=${event.code}, reason=${event.reason}`);
-                } else {
-                    logMessage('Connection died');
-                }
+                console.log('WebSocket Close Event:', event);
+                logMessage(`Close Details: code=${event.code}, reason=${event.reason || 'No reason provided'}, wasClean=${event.wasClean}`);
                 socket = null;
             };
             
             socket.onerror = function(error) {
-                logMessage(`Error: ${error.message}`);
+                console.error('WebSocket Error:', error);
+                logMessage(`Error Details: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`);
             };
         }
         
