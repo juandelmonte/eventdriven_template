@@ -1,0 +1,8 @@
+# Frontend dependencies (npm packages):
+# - axios (for HTTP requests)
+# - react-router-dom (for routing)
+# - jwt-decode (for handling JWT tokens)
+# - socket.io-client (for WebSocket connections)
+
+# Install with:
+# npm install axios react-router-dom jwt-decode socket.io-client

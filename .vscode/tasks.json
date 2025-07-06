@@ -1,0 +1,76 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Redis",
+      "type": "shell",
+      "command": "redis-server",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "eventdriven"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Django Backend",
+      "type": "shell",
+      "command": "cd backend/djangoproject && python manage.py runserver",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "eventdriven"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Celery Worker",
+      "type": "shell",
+      "command": "cd backend/djangoproject && celery -A djangoproject worker --loglevel=info",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "eventdriven"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Task Processor Daemon",
+      "type": "shell",
+      "command": "cd daemon && python processor.py",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "eventdriven"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start React Frontend",
+      "type": "shell",
+      "command": "cd frontend/reactproject && npm start",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "eventdriven"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start All Services",
+      "dependsOn": [
+        "Start Redis",
+        "Start Django Backend",
+        "Start Celery Worker",
+        "Start Task Processor Daemon",
+        "Start React Frontend"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

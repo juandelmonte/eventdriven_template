@@ -1,0 +1,21 @@
+{
+  "frontend": {
+    "host": "localhost",
+    "port": 3000
+  },
+  "backend": {
+    "host": "localhost",
+    "port": 8000
+  },
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "channels": {
+      "tasks_queue": "tasks",
+      "results_queue": "results"
+    }
+  },
+  "websocket": {
+    "path": "ws/notifications/"
+  }
+}

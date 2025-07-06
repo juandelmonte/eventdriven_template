@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #log { height: 300px; border: 1px solid #ccc; overflow-y: scroll; padding: 10px; margin-bottom: 10px; }
+        #controls { margin-bottom: 10px; }
+        button { padding: 5px 10px; }
+    </style>
+</head>
+<body>
+    <h2>WebSocket Test Client</h2>
+    <div id="controls">
+        <button onclick="connectWebSocket()">Connect</button>
+        <button onclick="disconnectWebSocket()">Disconnect</button>
+        <span id="status">Disconnected</span>
+    </div>
+    <div id="log"></div>
+    
+    <script>
+        let socket;
+        const token = prompt("Enter your JWT token:");
+        
+        function connectWebSocket() {
+            if (socket) {
+                logMessage("Already connected!");
+                return;
+            }
+            
+            // Connect to the WebSocket with authorization token
+            socket = new WebSocket(`ws://localhost:8000/ws/tasks/?token=${token}`);
+            
+            socket.onopen = function(e) {
+                document.getElementById('status').innerText = "Connected";
+                logMessage("Connection established");
+            };
+            
+            socket.onmessage = function(event) {
+                logMessage("Message received:");
+                try {
+                    const data = JSON.parse(event.data);
+                    logMessage(JSON.stringify(data, null, 2));
+                } catch(e) {
+                    logMessage(event.data);
+                }
+            };
+            
+            socket.onclose = function(event) {
+                document.getElementById('status').innerText = "Disconnected";
+                if (event.wasClean) {
+                    logMessage(`Connection closed cleanly, code=${event.code}, reason=${event.reason}`);
+                } else {
+                    logMessage('Connection died');
+                }
+                socket = null;
+            };
+            
+            socket.onerror = function(error) {
+                logMessage(`Error: ${error.message}`);
+            };
+        }
+        
+        function disconnectWebSocket() {
+            if (socket) {
+                socket.close();
+                socket = null;
+                document.getElementById('status').innerText = "Disconnected";
+                logMessage("Disconnected");
+            }
+        }
+        
+        function logMessage(message) {
+            const log = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            if (typeof message === 'object') {
+                message = JSON.stringify(message, null, 2);
+            }
+            log.innerHTML += `<div><strong>${time}</strong>: ${message}</div>`;
+            log.scrollTop = log.scrollHeight;
+        }
+    </script>
+</body>
+</html>
