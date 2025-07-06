@@ -1,6 +1,7 @@
 import random
 import json
 import redis
+import datetime  # Added missing import for datetime
 from celery import shared_task, current_task
 
 # Import configuration
@@ -28,11 +29,16 @@ def generate_random_number(user_id, min_value=1, max_value=100):
     The result is published to Redis, which will be picked up by Django's consumers
     and forwarded to the client via WebSockets.
     """
+    print(f"TASK: generate_random_number for user {user_id}")
+    print(f"Redis config: host={REDIS_HOST}, port={REDIS_PORT}, queue={REDIS_RESULTS_QUEUE}")
+    
     # Generate random number
     result = random.randint(min_value, max_value)
+    print(f"Generated random number: {result}")
     
     # Get task ID from Celery
     task_id = current_task.request.id
+    print(f"Task ID: {task_id}")
     
     # Prepare result data
     result_data = {
@@ -40,20 +46,30 @@ def generate_random_number(user_id, min_value=1, max_value=100):
         "task_id": task_id,
         "task_type": "generate_random_number",
         "status": "completed",
-        "result": {"number": result}
+        "result": {"number": result},
+        "timestamp": str(datetime.datetime.now())
     }
     
-    # Publish result to Redis
-    redis_client = redis.Redis(
-        host=REDIS_HOST,
-        port=REDIS_PORT,
-        decode_responses=True
-    )
+    print(f"Publishing result to Redis: {result_data}")
     
-    redis_client.publish(
-        REDIS_RESULTS_QUEUE,
-        json.dumps(result_data)
-    )
+    # Publish result to Redis
+    try:
+        redis_client = redis.Redis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            decode_responses=True
+        )
+        
+        pub_result = redis_client.publish(
+            REDIS_RESULTS_QUEUE,
+            json.dumps(result_data)
+        )
+        
+        print(f"Redis publish result: {pub_result}")
+    except Exception as e:
+        print(f"Error publishing to Redis: {str(e)}")
+        import traceback
+        traceback.print_exc()
     
     # Return result (this will be stored in Celery's result backend)
     return {

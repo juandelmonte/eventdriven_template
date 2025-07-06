@@ -11,29 +11,8 @@ from channels.layers import get_channel_layer
 logger = logging.getLogger(__name__)
 
 class TaskConsumer(AsyncWebsocketConsumer):
+    
     async def connect(self):
-        print("==========================")
-        print("CONSUMER CONNECT CALLED!")
-        print("==========================")
-        logger.info("CONSUMER CONNECT CALLED!")
-        # Temporary fix for testing - accept all connections
-        await self.accept()
-        self.user_id = "test_user"
-        self.group_name = f"user_{self.user_id}"
-        
-        # Send confirmation
-        await self.send(text_data=json.dumps({
-            "type": "connection_established",
-            "message": "Connected for testing"
-        }))
-        
-        # Add to group
-        await self.channel_layer.group_add(
-            self.group_name,
-            self.channel_name
-        )
-
-    async def connect_old(self):
         logger.info("============== TASK CONSUMER CONNECT ==============")
         
         try:
@@ -104,11 +83,18 @@ class TaskConsumer(AsyncWebsocketConsumer):
                     "message": "Channel layer test message"
                 }
             )
-            logger.info("Sent test message to channel group")
-            
-            # CRITICAL PART: Create Redis connection and subscribe to results
+            logger.info("Sent test message to channel group")                # CRITICAL PART: Create Redis connection and subscribe to results
             try:
                 logger.info("Creating Redis connection...")
+                logger.info(f"Redis settings: host={settings.REDIS_HOST}, port={settings.REDIS_PORT}")
+                logger.info(f"Redis results queue: {settings.REDIS_RESULTS_QUEUE}")
+                
+                # Send info to client
+                await self.send(text_data=json.dumps({
+                    "type": "info",
+                    "message": f"Connecting to Redis at {settings.REDIS_HOST}:{settings.REDIS_PORT}"
+                }))
+                
                 self.redis = Redis(
                     host=settings.REDIS_HOST,
                     port=settings.REDIS_PORT,
@@ -116,8 +102,32 @@ class TaskConsumer(AsyncWebsocketConsumer):
                 )
                 logger.info(f"Redis connection established to {settings.REDIS_HOST}:{settings.REDIS_PORT}")
                 
-                # Subscribe to Redis channel
-                self.pubsub = await self.redis.pubsub()
+                # Send confirmation to client
+                await self.send(text_data=json.dumps({
+                    "type": "info",
+                    "message": "Redis connection established"
+                }))
+                
+                # Test Redis connection first
+                redis_test = await self.test_redis_connection()
+                if redis_test:
+                    logger.info("Redis connection test passed")
+                    await self.send(text_data=json.dumps({
+                        "type": "info",
+                        "message": "Redis connection test successful"
+                    }))
+                else:
+                    logger.warning("Redis connection test failed")
+                    await self.send(text_data=json.dumps({
+                        "type": "warning",
+                        "message": "Redis connection test failed"
+                    }))
+                
+                # Create PubSub instance
+                self.pubsub = self.redis.pubsub()
+                logger.info("Created Redis PubSub instance")
+                
+                # Subscribe to Redis channel - this method IS awaitable
                 await self.pubsub.subscribe(settings.REDIS_RESULTS_QUEUE)
                 logger.info(f"Subscribed to Redis results queue: {settings.REDIS_RESULTS_QUEUE}")
                 
@@ -126,6 +136,7 @@ class TaskConsumer(AsyncWebsocketConsumer):
                 logger.info("Started Redis listener task")
             except Exception as e:
                 logger.error(f"Error setting up Redis connection: {str(e)}")
+                traceback.print_exc(file=sys.stderr)
                 await self.send(text_data=json.dumps({
                     "type": "error",
                     "message": f"Redis connection error: {str(e)}"
@@ -181,48 +192,97 @@ class TaskConsumer(AsyncWebsocketConsumer):
         This connects Celery task results to the WebSocket client.
         """
         logger.info(f"Redis listener started for user {self.user_id}")
+        logger.info(f"Listening on queue: {settings.REDIS_RESULTS_QUEUE}")
+        
+        # Send confirmation to the client
+        await self.send(text_data=json.dumps({
+            "type": "info",
+            "message": f"Subscribed to Redis queue: {settings.REDIS_RESULTS_QUEUE}"
+        }))
+        
+        msg_count = 0
+        heartbeat_count = 0
         try:
             while True:
                 try:
+                    # Periodically log that we're still listening
+                    heartbeat_count += 1
+                    if heartbeat_count >= 100:  # Every ~10 seconds
+                        logger.info(f"Still listening on Redis queue: {settings.REDIS_RESULTS_QUEUE}")
+                        heartbeat_count = 0
+                        # Send heartbeat to client
+                        await self.send(text_data=json.dumps({
+                            "type": "heartbeat",
+                            "message": "Redis listener still active"
+                        }))
+                    
+                    # get_message is awaitable in the async Redis client
                     message = await self.pubsub.get_message(ignore_subscribe_messages=True)
-                    if message and message['type'] == 'message':
-                        logger.debug(f"Received message from Redis: {message['data']}")
+                    
+                    if message:
+                        msg_count += 1
+                        logger.info(f"Redis message received #{msg_count}: {message}")
+                        # Forward raw message info to client for debugging
+                        await self.send(text_data=json.dumps({
+                            "type": "debug",
+                            "message": f"Received Redis message of type: {message['type']}"
+                        }))
                         
-                        try:
-                            # Parse the JSON data
-                            data = json.loads(message['data'])
+                        if message['type'] == 'message':
+                            data = message['data']
+                            logger.info(f"Message data: {data}")
                             
-                            # Check if this message is for the current user
-                            message_user_id = data.get('user_id')
-                            if message_user_id is not None and str(message_user_id) == str(self.user_id):
-                                logger.info(f"Forwarding task result to user {self.user_id}")
+                            try:
+                                # Parse the JSON data
+                                parsed_data = json.loads(data)
+                                logger.info(f"Parsed message data: {parsed_data}")
                                 
-                                # Option 1: Send directly to the WebSocket
-                                await self.send(text_data=json.dumps(data))
+                                # Check if this message is for the current user
+                                message_user_id = parsed_data.get('user_id')
+                                logger.info(f"Message user_id: {message_user_id}, current user_id: {self.user_id}")
                                 
-                                # Option 2: Send via channel layer (if you want to broadcast to multiple sessions)
-                                # await self.channel_layer.group_send(
-                                #     self.group_name,
-                                #     {
-                                #         "type": "task.result",
-                                #         "data": data
-                                #     }
-                                # )
-                            else:
-                                logger.debug(f"Ignoring message for user {message_user_id} (current: {self.user_id})")
-                        except json.JSONDecodeError:
-                            logger.error(f"Failed to decode JSON from Redis: {message['data']}")
-                        except Exception as e:
-                            logger.error(f"Error processing Redis message: {str(e)}")
-                            traceback.print_exc(file=sys.stderr)
-                
+                                # For debugging, send info about the message even if it's not for this user
+                                await self.send(text_data=json.dumps({
+                                    "type": "debug",
+                                    "message": f"Message for user: {message_user_id}, current user: {self.user_id}"
+                                }))
+                                
+                                if message_user_id is not None and str(message_user_id) == str(self.user_id):
+                                    logger.info(f"Forwarding task result to user {self.user_id}")
+                                    
+                                    # Format the message with a type to make it more identifiable
+                                    response_data = {
+                                        "type": "task_result",
+                                        "data": parsed_data
+                                    }
+                                    
+                                    # Send directly to the WebSocket
+                                    await self.send(text_data=json.dumps(response_data))
+                                    logger.info("Message sent to WebSocket")
+                                else:
+                                    logger.info(f"Ignoring message for user {message_user_id} (current: {self.user_id})")
+                            except json.JSONDecodeError:
+                                logger.error(f"Failed to decode JSON from Redis: {data}")
+                                await self.send(text_data=json.dumps({
+                                    "type": "error",
+                                    "message": f"Failed to decode JSON from Redis: {data}"
+                                }))
+                            except Exception as e:
+                                logger.error(f"Error processing Redis message: {str(e)}")
+                                traceback.print_exc(file=sys.stderr)
+                                await self.send(text_data=json.dumps({
+                                    "type": "error",
+                                    "message": f"Error processing Redis message: {str(e)}"
+                                }))
+                    
                 except asyncio.CancelledError:
                     logger.info("Redis listener cancelled")
                     raise
                 except Exception as e:
                     logger.error(f"Error in Redis listener loop: {str(e)}")
                     traceback.print_exc(file=sys.stderr)
-                
+                    # Continue the loop to maintain the listener
+                    
                 # Small delay to prevent CPU hogging
                 await asyncio.sleep(0.1)
                 
@@ -232,7 +292,7 @@ class TaskConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             logger.error(f"Fatal error in Redis listener: {str(e)}")
             traceback.print_exc(file=sys.stderr)
-    
+
     async def receive(self, text_data):
         logger.info(f"Received message from WebSocket: {text_data}")
         
@@ -266,3 +326,68 @@ class TaskConsumer(AsyncWebsocketConsumer):
             await self.send(text_data=json.dumps(event["data"]))
         except Exception as e:
             logger.error(f"Error in task_result: {str(e)}")
+    
+    async def test_redis_connection(self):
+        """Test if Redis connection is working properly"""
+        try:
+            # Log Redis configuration
+            logger.info(f"Testing Redis connection to {settings.REDIS_HOST}:{settings.REDIS_PORT}")
+            logger.info(f"Results queue: {settings.REDIS_RESULTS_QUEUE}")
+            
+            # Test basic operations
+            test_key = f"test_key_{self.user_id}"
+            test_value = f"test_value_{self.user_id}"
+            
+            # Set a value
+            await self.redis.set(test_key, test_value)
+            logger.info(f"Set Redis test key: {test_key}")
+            
+            # Get the value
+            result = await self.redis.get(test_key)
+            logger.info(f"Got Redis test value: {result}")
+            
+            if result != test_value:
+                logger.error(f"Redis test value mismatch: expected {test_value}, got {result}")
+                await self.send(text_data=json.dumps({
+                    "type": "warning",
+                    "message": "Redis GET/SET test failed: values don't match"
+                }))
+                return False
+                
+            # Clean up
+            await self.redis.delete(test_key)
+            logger.info(f"Deleted Redis test key: {test_key}")
+            
+            # Test pub/sub manually on the main queue
+            test_message = {
+                "user_id": self.user_id,
+                "task_id": "connection-test",
+                "task_type": "test",
+                "status": "test",
+                "result": {"message": "Connection test"}
+            }
+            
+            # Publish a message to the results queue
+            json_message = json.dumps(test_message)
+            pub_result = await self.redis.publish(settings.REDIS_RESULTS_QUEUE, json_message)
+            logger.info(f"Published test message to {settings.REDIS_RESULTS_QUEUE}, result: {pub_result}")
+            
+            # Send confirmation to client
+            await self.send(text_data=json.dumps({
+                "type": "info",
+                "message": f"Redis connection test successful. Published test message with result: {pub_result}"
+            }))
+            
+            return True
+        except Exception as e:
+            error_msg = f"Redis test failed: {str(e)}"
+            logger.error(error_msg)
+            traceback.print_exc(file=sys.stderr)
+            
+            # Send error to client
+            await self.send(text_data=json.dumps({
+                "type": "error",
+                "message": error_msg
+            }))
+            
+            return False

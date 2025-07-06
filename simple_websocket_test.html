@@ -21,6 +21,8 @@
         <button onclick="disconnect()">Disconnect</button>
         <button onclick="sendMessage()">Send Test Message</button>
         <button onclick="testChannelLayer()">Test Channel Layer</button>
+        <button onclick="testRedisPublish()">Test Redis Publish</button>
+        <button onclick="submitRandomNumberTask()">Submit Random Number Task</button>
     </div>
     
     <div>
@@ -171,6 +173,81 @@
             } catch (error) {
                 log(`Error parsing token: ${error.message}`);
             }
+        }
+        
+        function testRedisPublish() {
+            const token = document.getElementById('token').value;
+            if (!token) {
+                log('Please enter a token to extract user_id');
+                return;
+            }
+            
+            try {
+                // Extract user_id from token (basic JWT parsing)
+                const tokenParts = token.split('.');
+                if (tokenParts.length !== 3) {
+                    log('Invalid JWT token format');
+                    return;
+                }
+                
+                const tokenPayload = JSON.parse(atob(tokenParts[1]));
+                const userId = tokenPayload.user_id;
+                
+                if (!userId) {
+                    log('Could not extract user_id from token');
+                    return;
+                }
+                
+                log(`Sending test message to Redis for user ${userId}`);
+                
+                // Call the Redis test endpoint
+                fetch(`http://localhost:8000/api/tasks/test-redis/?user_id=${userId}&message=Redis test from HTML at ${new Date().toISOString()}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        log(`Redis test response: ${JSON.stringify(data, null, 2)}`);
+                    })
+                    .catch(error => {
+                        log(`Error testing Redis: ${error.message}`);
+                    });
+            } catch (error) {
+                log(`Error parsing token: ${error.message}`);
+            }
+        }
+        
+        function submitRandomNumberTask() {
+            const token = document.getElementById('token').value;
+            if (!token) {
+                log('Please enter a token for authentication');
+                return;
+            }
+            
+            log('Submitting random number task...');
+            
+            // Call the task dispatcher with the random number task
+            fetch('http://localhost:8000/api/tasks/generate_random_number/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    min_value: 1,
+                    max_value: 1000
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                log(`Task submitted successfully: ${JSON.stringify(data, null, 2)}`);
+                log('Waiting for task result via WebSocket...');
+            })
+            .catch(error => {
+                log(`Error submitting task: ${error.message}`);
+            });
         }
     </script>
 </body>

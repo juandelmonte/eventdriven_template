@@ -4,6 +4,11 @@ from rest_framework import status, views
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
 import redis
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import logging
+import traceback
+import sys
 
 from .serializers import (
     GenerateRandomNumberSerializer, 
@@ -117,3 +122,50 @@ class TasksInfoView(views.APIView):
     )
     def get(self, request, *args, **kwargs):
         return Response(AVAILABLE_TASKS)
+
+
+logger = logging.getLogger(__name__)
+
+@csrf_exempt
+def test_redis_publish(request):
+    """Test endpoint to publish a message directly to Redis"""
+    try:
+        user_id = request.GET.get('user_id')
+        message = request.GET.get('message', 'Test message')
+        
+        if not user_id:
+            return JsonResponse({"error": "user_id parameter required"}, status=400)
+        
+        # Create a test payload
+        payload = {
+            "user_id": user_id,
+            "task_id": "test-task-id",
+            "task_type": "test_message",
+            "status": "completed",
+            "result": {"message": message}
+        }
+        
+        # Connect to Redis
+        redis_client = redis.Redis(
+            host=settings.REDIS_HOST,
+            port=settings.REDIS_PORT,
+            decode_responses=True
+        )
+        
+        # Publish to results queue
+        result = redis_client.publish(settings.REDIS_RESULTS_QUEUE, json.dumps(payload))
+        
+        logger.info(f"Published test message to Redis for user {user_id}, result: {result}")
+        
+        return JsonResponse({
+            "status": "success",
+            "message": f"Test message published to Redis for user {user_id}",
+            "queue": settings.REDIS_RESULTS_QUEUE,
+            "payload": payload,
+            "redis_publish_result": result
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in test_redis_publish: {str(e)}")
+        traceback.print_exc(file=sys.stderr)
+        return JsonResponse({"error": str(e)}, status=500)
