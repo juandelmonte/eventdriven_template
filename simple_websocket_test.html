@@ -20,6 +20,7 @@
         <button onclick="connect()">Connect</button>
         <button onclick="disconnect()">Disconnect</button>
         <button onclick="sendMessage()">Send Test Message</button>
+        <button onclick="testChannelLayer()">Test Channel Layer</button>
     </div>
     
     <div>
@@ -77,7 +78,32 @@
             socket.onclose = function(event) {
                 document.getElementById('status').innerText = 'Disconnected';
                 document.getElementById('status').style.color = 'red';
-                log(`Connection closed: code=${event.code}, reason=${event.reason || 'No reason'}, wasClean=${event.wasClean}`);
+                
+                // WebSocket Close Codes: https://developer.mozilla.org/en-US/docs/Web/API/CloseEvent/code
+                let codeExplanation = '';
+                switch(event.code) {
+                    case 1000: codeExplanation = 'Normal Closure'; break;
+                    case 1001: codeExplanation = 'Going Away'; break;
+                    case 1002: codeExplanation = 'Protocol Error'; break;
+                    case 1003: codeExplanation = 'Unsupported Data'; break;
+                    case 1005: codeExplanation = 'No Status Received'; break;
+                    case 1006: codeExplanation = 'Abnormal Closure (server might be down)'; break;
+                    case 1007: codeExplanation = 'Invalid frame payload data'; break;
+                    case 1008: codeExplanation = 'Policy Violation'; break;
+                    case 1009: codeExplanation = 'Message too big'; break;
+                    case 1010: codeExplanation = 'Missing Extension'; break;
+                    case 1011: codeExplanation = 'Internal Error'; break;
+                    case 1012: codeExplanation = 'Service Restart'; break;
+                    case 1013: codeExplanation = 'Try Again Later'; break;
+                    case 1014: codeExplanation = 'Bad Gateway'; break;
+                    case 1015: codeExplanation = 'TLS Handshake Failure'; break;
+                    case 4001: codeExplanation = 'Authentication Failure'; break;
+                    case 4002: codeExplanation = 'Redis Connection Issue'; break;
+                    case 4500: codeExplanation = 'Server Error'; break;
+                    default: codeExplanation = 'Unknown';
+                }
+                
+                log(`Connection closed: code=${event.code} (${codeExplanation}), reason=${event.reason || 'No reason'}, wasClean=${event.wasClean}`);
                 socket = null;
             };
             
@@ -105,6 +131,45 @@
                 socket.send(JSON.stringify(message));
             } else {
                 log('Cannot send message: Not connected');
+            }
+        }
+        
+        function testChannelLayer() {
+            const token = document.getElementById('token').value;
+            if (!token) {
+                log('Please enter a token to extract user_id');
+                return;
+            }
+            
+            try {
+                // Extract user_id from token (basic JWT parsing)
+                const tokenParts = token.split('.');
+                if (tokenParts.length !== 3) {
+                    log('Invalid JWT token format');
+                    return;
+                }
+                
+                const tokenPayload = JSON.parse(atob(tokenParts[1]));
+                const userId = tokenPayload.user_id;
+                
+                if (!userId) {
+                    log('Could not extract user_id from token');
+                    return;
+                }
+                
+                log(`Sending test message to channel layer for user ${userId}`);
+                
+                // Call the diagnostic endpoint
+                fetch(`http://localhost:8000/api/tasks/test-channel/?user_id=${userId}&message=Test from HTML at ${new Date().toISOString()}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        log(`Test channel response: ${JSON.stringify(data)}`);
+                    })
+                    .catch(error => {
+                        log(`Error testing channel: ${error.message}`);
+                    });
+            } catch (error) {
+                log(`Error parsing token: ${error.message}`);
             }
         }
     </script>

@@ -124,7 +124,7 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {module} {message}',
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
             'style': '{',
         },
     },
@@ -138,10 +138,27 @@ LOGGING = {
         'tasks.consumers': {
             'handlers': ['console'],
             'level': 'DEBUG',
+            'propagate': True,
         },
         'tasks.middleware': {
             'handlers': ['console'],
             'level': 'DEBUG',
+            'propagate': True,
+        },
+        'channels': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'channels.server': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'daphne': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': True,
         },
     },
 }

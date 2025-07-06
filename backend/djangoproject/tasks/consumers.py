@@ -1,121 +1,185 @@
+import json
+import asyncio
+import traceback
+import sys
+import logging
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.conf import settings
 from redis.asyncio import Redis
-import json
-import asyncio
-import logging
-import traceback
-import sys
+from channels.layers import get_channel_layer
 
 logger = logging.getLogger(__name__)
 
 class TaskConsumer(AsyncWebsocketConsumer):
     async def connect(self):
+        print("==========================")
+        print("CONSUMER CONNECT CALLED!")
+        print("==========================")
+        logger.info("CONSUMER CONNECT CALLED!")
+        # Temporary fix for testing - accept all connections
+        await self.accept()
+        self.user_id = "test_user"
+        self.group_name = f"user_{self.user_id}"
+        
+        # Send confirmation
+        await self.send(text_data=json.dumps({
+            "type": "connection_established",
+            "message": "Connected for testing"
+        }))
+        
+        # Add to group
+        await self.channel_layer.group_add(
+            self.group_name,
+            self.channel_name
+        )
+
+    async def connect_old(self):
+        logger.info("============== TASK CONSUMER CONNECT ==============")
+        
         try:
-            # Get user_id from scope (set by middleware)
-            user_id = self.scope.get('user_id')
+            # Get user_id from scope
+            self.user_id = self.scope.get('user_id')
+            logger.info(f"User ID from scope: {self.user_id}")
             
-            logger.info(f"WebSocket connect attempt with scope: {self.scope}")
+            # DEBUG: Print all available scope data
+            safe_scope = {k: v for k, v in self.scope.items() 
+                         if k not in ('headers', 'server', 'client')}
+            logger.info(f"WebSocket scope: {safe_scope}")
             
-            if not user_id:
-                logger.warning("No authenticated user found, closing connection")
-                await self.close(code=4001)
-                return
+            # Accept connection for debugging even if authentication fails
+            if settings.DEBUG:
+                logger.info("DEBUG mode enabled, accepting connection regardless of authentication")
+                await self.accept()
                 
-            # Store user_id for later use
-            self.user_id = user_id
-            logger.info(f"User authenticated with ID: {user_id}")
+                if not self.user_id:
+                    logger.warning("No authenticated user but accepting in DEBUG mode")
+                    await self.send(text_data=json.dumps({
+                        "type": "warning",
+                        "message": "Authentication failed but connection accepted in DEBUG mode"
+                    }))
+                    # Still set a group name for testing
+                    self.group_name = "anonymous"
+                    self.user_id = "anonymous"
+                else:
+                    # Create user-specific group name
+                    self.group_name = f"user_{self.user_id}"
+                    logger.info(f"Using group name: {self.group_name}")
+                    
+                    await self.send(text_data=json.dumps({
+                        "type": "connection_established",
+                        "message": f"Connected as user {self.user_id}"
+                    }))
+            else:
+                # Production mode - strict authentication
+                if not self.user_id:
+                    logger.error("Authentication failed, rejecting WebSocket connection")
+                    await self.close(code=4001)
+                    return
+                
+                # Accept the connection
+                await self.accept()
+                
+                # Create user-specific group name
+                self.group_name = f"user_{self.user_id}"
+                logger.info(f"Using group name: {self.group_name}")
+                
+                # Send confirmation message
+                await self.send(text_data=json.dumps({
+                    "type": "connection_established",
+                    "message": f"Connected as user {self.user_id}"
+                }))
             
-            # Create user-specific group name
-            self.group_name = f"user_{self.user_id}"
-            
-            # Accept the connection FIRST before any other async operations
-            await self.accept()
-            logger.info(f"WebSocket connection accepted for user {self.user_id}")
-            
-            # Send initial confirmation message
-            await self.send(text_data=json.dumps({
-                "type": "connection_established",
-                "message": f"Connected as user {self.user_id}"
-            }))
-            
-            # Then add to group
+            # Add to group
             await self.channel_layer.group_add(
                 self.group_name,
                 self.channel_name
             )
             logger.info(f"Added to channel group: {self.group_name}")
             
-        except Exception as e:
-            logger.error(f"Error in WebSocket connect: {str(e)}")
-            traceback.print_exc(file=sys.stdout)
-            await self.close(code=4500)
-            return
-        
-        # Create Redis connection
-        try:
-            logger.info("Creating Redis connection...")
-            self.redis = Redis(
-                host=settings.REDIS_HOST,
-                port=settings.REDIS_PORT,
-                decode_responses=True
+            # Send a test message to the group to verify channel layer works
+            await self.channel_layer.group_send(
+                self.group_name,
+                {
+                    "type": "chat.message",
+                    "message": "Channel layer test message"
+                }
             )
+            logger.info("Sent test message to channel group")
             
-            # Subscribe to Redis channel
-            logger.info("Creating Redis PubSub...")
-            self.pubsub = await self.redis.pubsub()
-            await self.pubsub.subscribe(settings.REDIS_RESULTS_QUEUE)
-            logger.info(f"Subscribed to Redis channel: {settings.REDIS_RESULTS_QUEUE}")
+            # CRITICAL PART: Create Redis connection and subscribe to results
+            try:
+                logger.info("Creating Redis connection...")
+                self.redis = Redis(
+                    host=settings.REDIS_HOST,
+                    port=settings.REDIS_PORT,
+                    decode_responses=True
+                )
+                logger.info(f"Redis connection established to {settings.REDIS_HOST}:{settings.REDIS_PORT}")
+                
+                # Subscribe to Redis channel
+                self.pubsub = await self.redis.pubsub()
+                await self.pubsub.subscribe(settings.REDIS_RESULTS_QUEUE)
+                logger.info(f"Subscribed to Redis results queue: {settings.REDIS_RESULTS_QUEUE}")
+                
+                # Start listening for messages in a background task
+                self.listen_task = asyncio.create_task(self.listen_to_redis())
+                logger.info("Started Redis listener task")
+            except Exception as e:
+                logger.error(f"Error setting up Redis connection: {str(e)}")
+                await self.send(text_data=json.dumps({
+                    "type": "error",
+                    "message": f"Redis connection error: {str(e)}"
+                }))
             
-            # Start listening for messages
-            logger.info("Starting Redis listener task...")
-            self.listen_task = asyncio.create_task(self.listen_to_redis())
-            logger.info("Redis listener task started")
+            logger.info("============== END TASK CONSUMER CONNECT ==============")
+            
         except Exception as e:
-            logger.error(f"Error setting up Redis: {str(e)}")
-            traceback.print_exc(file=sys.stdout)
-            await self.close(code=4002)
-
+            logger.error(f"Exception in connect: {str(e)}")
+            traceback.print_exc(file=sys.stderr)
+            if not hasattr(self, 'accepted') or not self.accepted:
+                await self.close(code=4500)
+            else:
+                await self.send(text_data=json.dumps({
+                    "type": "error",
+                    "message": f"Error: {str(e)}"
+                }))
+    
     async def disconnect(self, close_code):
         logger.info(f"WebSocket disconnect called with code: {close_code}")
         
-        try:
-            # Cancel background task
-            if hasattr(self, 'listen_task'):
-                logger.info("Cancelling Redis listener task")
-                self.listen_task.cancel()
-                try:
-                    await self.listen_task
-                except asyncio.CancelledError:
-                    pass
-                logger.info("Redis listener task cancelled")
+        # Clean up Redis resources
+        if hasattr(self, 'listen_task'):
+            logger.info("Cancelling Redis listener task")
+            self.listen_task.cancel()
+            try:
+                await self.listen_task
+            except asyncio.CancelledError:
+                pass
             
-            # Clean up Redis connection
-            if hasattr(self, 'pubsub'):
-                logger.info("Unsubscribing from Redis")
-                await self.pubsub.unsubscribe()
-                logger.info("Unsubscribed from Redis")
-                
-            if hasattr(self, 'redis'):
-                logger.info("Closing Redis connection")
-                await self.redis.close()
-                logger.info("Redis connection closed")
+        if hasattr(self, 'pubsub'):
+            logger.info("Unsubscribing from Redis")
+            await self.pubsub.unsubscribe()
             
-            # Remove from channel group
-            if hasattr(self, 'group_name') and hasattr(self, 'channel_name'):
-                logger.info(f"Removing from group: {self.group_name}")
+        if hasattr(self, 'redis'):
+            logger.info("Closing Redis connection")
+            await self.redis.close()
+        
+        # Clean up channel resources
+        if hasattr(self, 'group_name') and hasattr(self, 'channel_name'):
+            try:
                 await self.channel_layer.group_discard(
                     self.group_name,
                     self.channel_name
                 )
-                logger.info("Removed from group")
-                
-        except Exception as e:
-            logger.error(f"ERROR in disconnect: {str(e)}")
-            traceback.print_exc(file=sys.stdout)
-
+                logger.info(f"Removed from channel group: {self.group_name}")
+            except Exception as e:
+                logger.error(f"Error removing from group: {str(e)}")
+    
     async def listen_to_redis(self):
-        """Listen for messages from Redis and forward to WebSocket"""
+        """
+        Listen for messages on the Redis results queue and forward them to the WebSocket.
+        This connects Celery task results to the WebSocket client.
+        """
         logger.info(f"Redis listener started for user {self.user_id}")
         try:
             while True:
@@ -125,56 +189,80 @@ class TaskConsumer(AsyncWebsocketConsumer):
                         logger.debug(f"Received message from Redis: {message['data']}")
                         
                         try:
+                            # Parse the JSON data
                             data = json.loads(message['data'])
-                            logger.debug(f"Message JSON data: {data}")
                             
                             # Check if this message is for the current user
-                            if str(data.get('user_id')) == str(self.user_id):
-                                logger.info(f"Message is for user {self.user_id}, sending to WebSocket")
-                                await self.send(text_data=json.dumps(data))
-                                logger.info("Message sent to WebSocket")
+                            message_user_id = data.get('user_id')
+                            if message_user_id is not None and str(message_user_id) == str(self.user_id):
+                                logger.info(f"Forwarding task result to user {self.user_id}")
                                 
+                                # Option 1: Send directly to the WebSocket
+                                await self.send(text_data=json.dumps(data))
+                                
+                                # Option 2: Send via channel layer (if you want to broadcast to multiple sessions)
+                                # await self.channel_layer.group_send(
+                                #     self.group_name,
+                                #     {
+                                #         "type": "task.result",
+                                #         "data": data
+                                #     }
+                                # )
+                            else:
+                                logger.debug(f"Ignoring message for user {message_user_id} (current: {self.user_id})")
                         except json.JSONDecodeError:
                             logger.error(f"Failed to decode JSON from Redis: {message['data']}")
                         except Exception as e:
                             logger.error(f"Error processing Redis message: {str(e)}")
-                            traceback.print_exc(file=sys.stdout)
-                            
+                            traceback.print_exc(file=sys.stderr)
+                
+                except asyncio.CancelledError:
+                    logger.info("Redis listener cancelled")
+                    raise
                 except Exception as e:
-                    logger.error(f"Error in Redis message loop: {str(e)}")
-                    traceback.print_exc(file=sys.stdout)
+                    logger.error(f"Error in Redis listener loop: {str(e)}")
+                    traceback.print_exc(file=sys.stderr)
                 
                 # Small delay to prevent CPU hogging
                 await asyncio.sleep(0.1)
                 
         except asyncio.CancelledError:
-            logger.info("Redis listener cancelled")
+            logger.info("Redis listener task cancelled")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error in Redis listener: {str(e)}")
-            traceback.print_exc(file=sys.stdout)
-            await self.close(code=1011)
-            
-    async def task_update(self, event):
-        """Handle task updates and send to WebSocket"""
-        try:
-            logger.info(f"Sending task update to user {self.user_id}")
-            await self.send(text_data=json.dumps(event['message']))
-            logger.info("Task update sent")
-        except Exception as e:
-            logger.error(f"Error sending task update: {str(e)}")
-            traceback.print_exc(file=sys.stdout)
-            
+            logger.error(f"Fatal error in Redis listener: {str(e)}")
+            traceback.print_exc(file=sys.stderr)
+    
     async def receive(self, text_data):
-        """Handle messages from WebSocket"""
+        logger.info(f"Received message from WebSocket: {text_data}")
+        
         try:
-            logger.debug(f"Received WebSocket message: {text_data}")
-            # Echo back message for testing
+            # Echo back for testing
             await self.send(text_data=json.dumps({
-                'type': 'echo',
-                'message': text_data
+                "type": "echo",
+                "message": text_data
             }))
-            logger.debug("Sent echo response")
         except Exception as e:
             logger.error(f"Error in receive: {str(e)}")
-            traceback.print_exc(file=sys.stdout)
+    
+    async def chat_message(self, event):
+        """Handle messages sent to the group"""
+        logger.info(f"Received group message: {event}")
+        
+        try:
+            message = event["message"]
+            await self.send(text_data=json.dumps({
+                "type": "chat.message",
+                "message": message
+            }))
+        except Exception as e:
+            logger.error(f"Error in chat_message: {str(e)}")
+    
+    async def task_result(self, event):
+        """Handle task result messages from the channel layer"""
+        logger.info(f"Received task result via channel layer: {event}")
+        
+        try:
+            await self.send(text_data=json.dumps(event["data"]))
+        except Exception as e:
+            logger.error(f"Error in task_result: {str(e)}")
