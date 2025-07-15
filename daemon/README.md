@@ -21,22 +21,14 @@ The daemon is responsible for:
 
 ## Setup and Running
 
-1. Install the package in development mode:
+1. Install dependencies:
 ```
-# From the project root directory
-pip install -e .
+pip install -r requirements.txt
 ```
 
-2. Start the task processor daemon using any of these methods:
+2. Start the task processor daemon:
 ```
-# Using the entry point (after installation)
-run-daemon
-
-# As a Python module
-python -m daemon
-
-# Or directly if needed
-python -c "from daemon.processor import main; main()"
+python processor.py
 ```
 
 3. Start Celery workers (in a separate terminal):

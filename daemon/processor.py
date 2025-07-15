@@ -9,7 +9,6 @@ import logging
 import traceback
 import importlib
 import sys
-import os
 
 # Configure logging
 logging.basicConfig(
