@@ -1,4 +1,4 @@
-# Celery and Redis requirements
+# Daemon requirements
 celery==5.3.5
 redis==5.0.1
 python-dotenv==1.0.0
