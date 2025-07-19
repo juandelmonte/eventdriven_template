@@ -4,48 +4,72 @@
     {
       "label": "Start Redis",
       "type": "shell",
-      "command": "redis-server",
-      "isBackground": true,
+      "command": "docker run --name redis-server -p 6379:6379 -d redis:latest || docker start redis-server",
+      "options": {
+        "shell": {
+          "executable": "cmd.exe",
+          "args": ["/d", "/c"]
+        }
+      },
+      "isBackground": false,
       "presentation": {
         "reveal": "always",
-        "panel": "new",
-        "group": "eventdriven"
+        "panel": "dedicated",
+        "group": "eventdriven1"
       },
       "problemMatcher": []
     },
     {
       "label": "Start Django Backend",
       "type": "shell",
-      "command": "cd backend/djangoproject && python manage.py runserver",
-      "isBackground": true,
+      "command": ".\\venv\\Scripts\\activate.bat && cd backend/djangoproject && python manage.py runserver",
+      "options": {
+        "shell": {
+          "executable": "cmd.exe",
+          "args": ["/d", "/c"]
+        }
+      },
+      "isBackground": false,
       "presentation": {
         "reveal": "always",
-        "panel": "new",
-        "group": "eventdriven"
+        "panel": "dedicated",
+        "group": "eventdriven2"
       },
       "problemMatcher": []
     },
     {
       "label": "Start Celery Worker",
       "type": "shell",
-      "command": "cd backend/djangoproject && celery -A djangoproject worker --loglevel=info",
-      "isBackground": true,
+      "command": ".\\venv\\Scripts\\activate.bat && cd .. && celery -A daemon.tasks.tasks worker --loglevel=info --concurrency=1 --pool=solo",
+      "options": {
+        "shell": {
+          "executable": "cmd.exe",
+          "args": ["/d", "/c"]
+        }
+      },
+      "isBackground": false,
       "presentation": {
         "reveal": "always",
-        "panel": "new",
-        "group": "eventdriven"
+        "panel": "dedicated",
+        "group": "eventdriven3"
       },
       "problemMatcher": []
     },
     {
       "label": "Start Task Processor Daemon",
       "type": "shell",
-      "command": "cd daemon && python processor.py",
-      "isBackground": true,
+      "command": ".\\venv\\Scripts\\activate.bat && cd daemon && python processor.py",
+      "options": {
+        "shell": {
+          "executable": "cmd.exe",
+          "args": ["/d", "/c"]
+        }
+      },
+      "isBackground": false,
       "presentation": {
         "reveal": "always",
-        "panel": "new",
-        "group": "eventdriven"
+        "panel": "dedicated",
+        "group": "eventdriven4"
       },
       "problemMatcher": []
     },
@@ -53,11 +77,17 @@
       "label": "Start React Frontend",
       "type": "shell",
       "command": "cd frontend/reactproject && npm start",
-      "isBackground": true,
+      "options": {
+        "shell": {
+          "executable": "cmd.exe",
+          "args": ["/d", "/c"]
+        }
+      },
+      "isBackground": false,
       "presentation": {
         "reveal": "always",
-        "panel": "new",
-        "group": "eventdriven"
+        "panel": "dedicated",
+        "group": "eventdriven5"
       },
       "problemMatcher": []
     },
