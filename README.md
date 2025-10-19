@@ -49,7 +49,6 @@ flowchart TB
 - **Scalable Architecture**: All components can be scaled independently
 - **User Authentication**: JWT-based authentication for both API and WebSocket connections
 - **Task Management**: Track task status and results
-- **Easy Testing**: Includes a WebSocket test client for quick validation
 
 ## 🏗️ Architecture
 
@@ -187,12 +186,6 @@ Open the WebSocket test client in your browser:
 http://localhost:3000  # React frontend
 ```
 
-Or use the standalone WebSocket test client:
-
-```
-file://<path-to-project>/websocket_test_client.html
-```
-
 ## 🔍 How It Works
 
 ### Task Flow
@@ -239,7 +232,6 @@ eventdriven_template/
 ├── .vscode/                # VS Code configuration
 ├── config.json             # Application configuration
 ├── setup.py                # Python package setup file
-└── websocket_test_client.html # Standalone test client
 ```
 
 ## 🛠️ Customizing
