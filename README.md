@@ -2,20 +2,45 @@
 
 A modern event-driven architecture template demonstrating how to offload CPU-intensive tasks from HTTP servers and deliver results asynchronously via WebSockets. This project serves as a complete reference implementation for building scalable, responsive web applications using an event-driven architecture.
 
+## 🎯 Ideal Use Cases
+
+This architecture brings significant value in scenarios such as:
+
+- **Data Processing Applications**: Process large datasets, generate reports, or perform ETL operations asynchronously
+- **Media Handling**: Transcode videos, resize images, or apply filters without blocking the main application
+- **AI/ML Workflows**: Run machine learning inference, train models, or process natural language without affecting user experience
+- **Batch Operations**: Process bulk imports/exports or scheduled tasks efficiently
+- **Real-time Dashboards**: Update metrics and analytics in real-time as processing completes
+- **High-Concurrency Systems**: Handle thousands of simultaneous requests by offloading work to background processes
+- **IoT Applications**: Process incoming sensor data and trigger actions based on results
+- **Financial Systems**: Execute complex calculations and generate statements in the background
+
 ```mermaid
 flowchart TB
     User[User] -->|Interacts with| Frontend
-    Frontend[Frontend\nReact + Vite] -->|HTTP Requests| Backend
+    Frontend["Frontend<br/>React + Vite"] -->|HTTP Requests| Backend
     Frontend -->|WebSocket Connection| WebSocket
-    Backend[Backend\nDjango REST API] -->|Publishes Tasks| Redis
-    Backend -->|Hosts| WebSocket[WebSocket Server\nDjango Channels]
-    Redis[(Redis\nPub/Sub + Queue)] -->|Task Requests| Daemon
-    Daemon[Task Processor\nPython Daemon] -->|Dispatches Jobs| Celery[Celery Workers]
+    Backend["Backend<br/>Django REST API"] -->|Publishes Tasks| Redis
+    Backend -->|Hosts| WebSocket["WebSocket Server<br/>Django Channels"]
+    Redis[("Redis<br/>Pub/Sub + Queue")] -->|Task Requests| Daemon
+    Daemon["Task Processor<br/>Python Daemon"] -->|Dispatches Jobs| Celery["Celery Workers"]
     Celery -->|Executes Tasks| Celery
     Celery -->|Results| Redis
     Redis -->|Notifications| Backend
     WebSocket -->|Real-time Updates| Frontend
 ```
+
+> **Scalability:** This architecture is designed for horizontal scalability. Each component (Frontend, Backend, Redis, Task Processor, Celery Workers) can be scaled independently based on load requirements. For production deployments, Celery workers can be distributed across a separate server to handle intensive computational tasks without affecting the main application's responsiveness. Redis acts as the central message broker, allowing seamless communication between distributed components regardless of their physical location.
+
+> **Scope and Limitations:** This template implements a basic worker server working isolated from the back and front. For applications requiring per-user (or other kind of) isolation, additional modifications would be needed.
+
+> **Benefits of Event-Driven Architecture:**
+> - **Improved Responsiveness:** User requests are acknowledged immediately while processing happens asynchronously
+> - **Resource Optimization:** CPU-intensive tasks are offloaded from web servers to dedicated workers
+> - **Fault Isolation:** Failures in task processing don't crash the main application
+> - **Independent Scaling:** Scale only the components that need additional resources
+> - **Real-time Updates:** Users receive immediate notifications when tasks complete
+> - **System Resilience:** Message queuing provides buffering during traffic spikes
 
 ## 🚀 Features
 
