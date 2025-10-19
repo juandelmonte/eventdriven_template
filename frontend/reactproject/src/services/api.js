@@ -1,5 +1,5 @@
 import axios from 'axios';
-import jwtDecode from 'jwt-decode';
+import { jwtDecode } from 'jwt-decode'; // Updated import syntax for v4
 import config from './config';
 
 // Create axios instance with base URL

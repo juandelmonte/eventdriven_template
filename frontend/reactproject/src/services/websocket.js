@@ -31,8 +31,16 @@ class WebSocketService {
     this.socket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        console.log('WebSocket received message:', data);
         
-        if (data.type === 'task_update') {
+        // Handle task_result type coming from the backend
+        if (data.type === 'task_result') {
+          this.callbacks.taskUpdate.forEach(callback => {
+            callback(data.data);
+          });
+        }
+        // Keep the original task_update type for compatibility
+        else if (data.type === 'task_update') {
           this.callbacks.taskUpdate.forEach(callback => {
             callback(data.task);
           });

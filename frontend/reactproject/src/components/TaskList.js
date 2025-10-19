@@ -19,12 +19,21 @@ const TaskList = ({ tasks }) => {
             {task.result && (
               <div className="task-result">
                 <h4>Result:</h4>
-                {task.task_type === 'generate_random_number' && (
+                {task.task_type === 'generate_random_number' && task.result.number && (
                   <p className="random-number">{task.result.number}</p>
                 )}
-                {task.task_type !== 'generate_random_number' && (
+                {task.task_type === 'reverse_string' && task.result.reversed_text && (
+                  <p className="reversed-text">{task.result.reversed_text}</p>
+                )}
+                {(task.task_type !== 'generate_random_number' && task.task_type !== 'reverse_string') && (
                   <pre>{JSON.stringify(task.result, null, 2)}</pre>
                 )}
+              </div>
+            )}
+            {task.error && (
+              <div className="task-error">
+                <h4>Error:</h4>
+                <p className="error-message">{task.error}</p>
               </div>
             )}
           </div>

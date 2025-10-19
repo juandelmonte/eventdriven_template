@@ -1,16 +1,15 @@
-// Load configuration from global config.json file
-// In a real app, this might be fetched from an API or environment variables
+// Configuration using Vite environment variables with fallbacks
 const config = {
   frontend: {
-    host: 'localhost',
-    port: 3000
+    host: import.meta.env.VITE_APP_FRONTEND_HOST || 'localhost',
+    port: parseInt(import.meta.env.VITE_APP_FRONTEND_PORT || '3000')
   },
   backend: {
-    host: 'localhost',
-    port: 8000
+    host: import.meta.env.VITE_APP_BACKEND_HOST || 'localhost',
+    port: parseInt(import.meta.env.VITE_APP_BACKEND_PORT || '8000')
   },
   websocket: {
-    path: 'ws/notifications/'
+    path: import.meta.env.VITE_APP_WS_PATH || 'ws/notifications/'
   }
 };
 
